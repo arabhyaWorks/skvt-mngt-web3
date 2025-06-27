@@ -6,22 +6,18 @@ const LoginForm: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, error } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     setIsLoading(true);
 
     try {
       const success = await login(email, password);
-      if (!success) {
-        setError('Invalid credentials. Please try again.');
-      }
+      // The error handling is now done in the useAuth hook
     } catch (err) {
-      setError('Login failed. Please try again.');
+      console.error('Login error:', err);
     } finally {
       setIsLoading(false);
     }

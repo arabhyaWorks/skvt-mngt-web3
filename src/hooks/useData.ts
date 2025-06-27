@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Department, Employee, Shift, DutyPoint, Order, Checklist } from '../types';
+import { API_BASE_URL } from '../config/api';
+import { useAuth } from './useAuth';
 
 export const useData = () => {
+  const { user } = useAuth();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -9,11 +12,82 @@ export const useData = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [loading, setLoading] = useState(true);
+  const [departmentAdmins, setDepartmentAdmins] = useState<any[]>([]);
 
-  // Mock data initialization
+  // Fetch departments from API for super admin
+  const fetchDepartments = async () => {
+    if (user?.role !== 'super_admin') {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/departments`, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // The API returns an array where the second element contains the departments
+        const departmentsData = data[1] || [];
+        
+        const mappedDepartments: Department[] = departmentsData.map((dept: any) => ({
+          id: dept.department_id.toString(),
+          name: dept.name,
+          description: dept.description,
+          adminId: dept.admin_id?.toString() || '',
+          adminName: dept.admin_name || '',
+          activePoints: dept.duty_points?.length || 0,
+          totalShifts: dept.shifts?.length || 0,
+          totalEmployees: dept.num_employees || 0,
+          status: 'active' as const,
+          createdAt: new Date().toISOString(),
+        }));
+
+        setDepartments(mappedDepartments);
+      }
+    } catch (error) {
+      console.error('Error fetching departments:', error);
+    }
+  };
+
+  // Fetch department admins
+  const fetchDepartmentAdmins = async () => {
+    if (user?.role !== 'super_admin') return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users?role=DepartmentAdmin`, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setDepartmentAdmins(data);
+      }
+    } catch (error) {
+      console.error('Error fetching department admins:', error);
+    }
+  };
+
+  // Data initialization
   useEffect(() => {
-    const initializeData = () => {
-const mockDepartments: Department[] = [
+    if (user?.role === 'super_admin') {
+      // Fetch real data for super admin
+      fetchDepartments();
+      fetchDepartmentAdmins();
+      setLoading(false);
+    } else {
+      // Use mock data for other roles
+      initializeMockData();
+    }
+  }, [user]);
+
+  const initializeMockData = () => {
+    const mockDepartments: Department[] = [
   {
     id: 'dept-1',
     name: 'पुलिस आयुक्त, कमिश्नरेट, वाराणसी',
@@ -234,10 +308,8 @@ const mockDepartments: Department[] = [
     status: 'active',
     createdAt: new Date().toISOString(),
   },
-];
+    ];
 
-
-      // Mock Duty Points
       const mockDutyPoints: DutyPoint[] = [
         {
           id: 'YSK1',
@@ -508,18 +580,98 @@ const mockDepartments: Department[] = [
       setOrders(mockOrders);
       setChecklists([]);
       setLoading(false);
-    };
+  };
 
-    initializeData();
-  }, []);
+  // Create department with existing admin
+  const createDepartmentWithExistingAdmin = async (departmentData: {
+    name: string;
+    description: string;
+    admin_id: number;
+  }) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/departments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(departmentData),
+      });
 
-  const addDepartment = (department: Omit<Department, 'id' | 'createdAt'>) => {
-    const newDepartment: Department = {
-      ...department,
-      id: `dept-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    setDepartments(prev => [...prev, newDepartment]);
+      if (response.ok) {
+        const result = await response.json();
+        // Refresh departments list
+        await fetchDepartments();
+        await fetchDepartmentAdmins();
+        return { success: true, message: result.message };
+      } else {
+        const error = await response.json();
+        return { success: false, message: error.error || 'Failed to create department' };
+      }
+    } catch (error) {
+      console.error('Error creating department:', error);
+      return { success: false, message: 'Network error occurred' };
+    }
+  };
+
+  // Create department with new admin
+  const createDepartmentWithNewAdmin = async (departmentData: {
+    name: string;
+    description: string;
+    admin_name: string;
+    admin_email: string;
+    admin_phone: string;
+    admin_password: string;
+  }) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/departments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(departmentData),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        // Refresh departments list
+        await fetchDepartments();
+        await fetchDepartmentAdmins();
+        return { success: true, message: result.message };
+      } else {
+        const error = await response.json();
+        return { success: false, message: error.error || 'Failed to create department' };
+      }
+    } catch (error) {
+      console.error('Error creating department:', error);
+      return { success: false, message: 'Network error occurred' };
+    }
+  };
+
+  const addDepartment = async (departmentData: any, adminData?: any) => {
+    if (user?.role !== 'super_admin') {
+      return { success: false, message: 'Unauthorized' };
+    }
+
+    if (adminData) {
+      // Create department with new admin
+      return await createDepartmentWithNewAdmin({
+        name: departmentData.name,
+        description: departmentData.description,
+        admin_name: adminData.name,
+        admin_email: adminData.email,
+        admin_phone: adminData.phone,
+        admin_password: adminData.password,
+      });
+    } else if (departmentData.admin_id) {
+      // Create department with existing admin
+      return await createDepartmentWithExistingAdmin({
+        name: departmentData.name,
+        description: departmentData.description,
+        admin_id: parseInt(departmentData.admin_id),
+      });
+    }
+
+    return { success: false, message: 'Invalid department data' };
   };
 
   const updateDepartment = (id: string, updates: Partial<Department>) => {
@@ -548,5 +700,8 @@ const mockDepartments: Department[] = [
     setDutyPoints,
     setOrders,
     setChecklists,
+    departmentAdmins,
+    fetchDepartments,
+    fetchDepartmentAdmins,
   };
 };

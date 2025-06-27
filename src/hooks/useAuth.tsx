@@ -1,5 +1,6 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
 import { User, AuthState } from '../types';
+import { API_BASE_URL } from '../config/api';
 
 interface AuthContextType {
   user: User | null;
@@ -7,6 +8,7 @@ interface AuthContextType {
   logout: () => void;
   isAuthenticated: boolean;
   loading: boolean;
+  error: string | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -30,48 +32,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     isAuthenticated: false,
     loading: true,
   });
-
-  // Mock users for demonstration
-  const mockUsers: User[] = [
-    {
-      id: '1',
-      name: 'SKVT Super Admin',
-      email: 'admin@skvt.org',
-      phone: '+91-9876543210',
-      role: 'super_admin',
-      isActive: true,
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: '2',
-      name: 'Security Department Admin',
-      email: 'security@skvt.org',
-      phone: '+91-9876543211',
-      role: 'department_admin',
-      departmentId: 'dept-1',
-      isActive: true,
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: '4',
-      name: 'पुलिस आयुक्त Admin',
-      email: 'policecom@gmail.com',
-      phone: '+91-9876543220',
-      role: 'department_admin',
-      departmentId: 'dept-1',
-      isActive: true,
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: '3',
-      name: 'Control Room Operator',
-      email: 'control@skvt.org',
-      phone: '+91-9876543212',
-      role: 'control_room',
-      isActive: true,
-      createdAt: new Date().toISOString(),
-    },
-  ];
+  const [error, setError] = useState<string | null>(null);
 
   // Check for existing session on app load
   useEffect(() => {
@@ -115,11 +76,35 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
       setAuthState(prev => ({ ...prev, loading: true }));
+      setError(null);
       
-      // Mock authentication - in real app, this would be an API call
-      const user = mockUsers.find(u => u.email === email);
-      
-      if (user && (password === 'skvt123' || password === 'user@123')) {
+      // Call the actual login API
+      const response = await fetch(`${API_BASE_URL}/api/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          password,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.user) {
+        // Map the API response to our User interface
+        const user: User = {
+          id: data.user.id,
+          name: data.user.name,
+          email: data.user.email,
+          phone: data.user.phone,
+          role: mapApiRoleToAppRole(data.user.role),
+          departmentId: data.user.departmentId,
+          isActive: data.user.isActive,
+          createdAt: data.user.createdAt,
+        };
+
         // Set session expiry to 24 hours from now
         const sessionExpiry = Date.now() + (24 * 60 * 60 * 1000);
         
@@ -134,14 +119,32 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         localStorage.setItem('skvt_session_expiry', sessionExpiry.toString());
         
         return true;
+      } else {
+        // Handle API errors
+        const errorMessage = data.error || 'Login failed. Please try again.';
+        setError(errorMessage);
+        setAuthState(prev => ({ ...prev, loading: false }));
+        return false;
       }
-      
-      setAuthState(prev => ({ ...prev, loading: false }));
-      return false;
     } catch (error) {
       console.error('Login error:', error);
+      setError('Network error. Please check your connection and try again.');
       setAuthState(prev => ({ ...prev, loading: false }));
       return false;
+    }
+  };
+
+  // Map API role to our app role format
+  const mapApiRoleToAppRole = (apiRole: string): 'super_admin' | 'department_admin' | 'control_room' => {
+    switch (apiRole) {
+      case 'SuperAdmin':
+        return 'super_admin';
+      case 'DepartmentAdmin':
+        return 'department_admin';
+      case 'ControlRoom':
+        return 'control_room';
+      default:
+        return 'department_admin'; // Default fallback
     }
   };
 
@@ -151,6 +154,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       isAuthenticated: false,
       loading: false,
     });
+    setError(null);
     // Clear all session data
     localStorage.removeItem('skvt_user');
     localStorage.removeItem('skvt_session_expiry');
@@ -187,6 +191,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     ...authState,
     login,
     logout,
+    error,
   };
 
   return (

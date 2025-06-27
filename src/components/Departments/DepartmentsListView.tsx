@@ -15,11 +15,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useData } from '../../hooks/useData';
 import AddDepartmentModal from './AddDepartmentModal';
 
-interface DepartmentsListViewProps {
-  onViewDepartment?: (departmentId: string) => void;
-}
-
-const DepartmentsListView: React.FC<DepartmentsListViewProps> = ({ onViewDepartment = () => {} }) => {
+const DepartmentsListView: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { departments, addDepartment } = useData();
@@ -41,16 +37,7 @@ const DepartmentsListView: React.FC<DepartmentsListViewProps> = ({ onViewDepartm
   });
 
   const handleAddDepartment = (departmentData: any, adminData: any) => {
-    const newDepartment = {
-      ...departmentData,
-      adminId: `admin-${Date.now()}`,
-      activePoints: 0,
-      totalShifts: 0,
-      totalEmployees: 0,
-    };
-    
-    addDepartment(newDepartment);
-    console.log('New admin to be created:', adminData);
+    return addDepartment(departmentData, adminData);
   };
 
   const getStatusColor = (status: string) => {
@@ -77,6 +64,11 @@ const DepartmentsListView: React.FC<DepartmentsListViewProps> = ({ onViewDepartm
       default:
         return 'Unknown';
     }
+  };
+
+  
+  const handleDepartmentClick = (departmentId, navigate) => {
+    navigate(`/departments/${departmentId}`);
   };
 
   return (
@@ -147,7 +139,8 @@ const DepartmentsListView: React.FC<DepartmentsListViewProps> = ({ onViewDepartm
         {filteredDepartments.map((department) => (
           <div
             key={department.id}
-            className="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md hover:border-orange-200 transition-all duration-200 overflow-hidden"
+            className="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md hover:border-orange-200 transition-all duration-200 overflow-hidden cursor-pointer"
+            onClick={() => handleDepartmentClick(department.id, navigate)}
           >
             {/* Department Header */}
             <div className="p-6 pb-4">
@@ -201,7 +194,10 @@ const DepartmentsListView: React.FC<DepartmentsListViewProps> = ({ onViewDepartm
             <div className="px-6 py-4 bg-gray-50 border-t border-gray-100">
               <div className="flex justify-between items-center">
                 <button
-                  onClick={() => navigate(`/departments/${department.id}`)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/departments/${department.id}`);
+                  }}
                   className="flex items-center px-3 py-2 text-sm font-medium text-orange-600 hover:text-orange-700 hover:bg-orange-50 rounded-lg transition-colors"
                 >
                   <Eye className="h-4 w-4 mr-1" />
@@ -210,7 +206,11 @@ const DepartmentsListView: React.FC<DepartmentsListViewProps> = ({ onViewDepartm
                 
                 {(user?.role === 'super_admin' || 
                   (user?.role === 'department_admin' && user.departmentId === department.id)) && (
-                  <button className="flex items-center px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                    }}
+                    className="flex items-center px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
                     <Edit className="h-4 w-4 mr-1" />
                     Edit
                   </button>
@@ -253,5 +253,6 @@ const DepartmentsListView: React.FC<DepartmentsListViewProps> = ({ onViewDepartm
     </div>
   );
 };
+
 
 export default DepartmentsListView;

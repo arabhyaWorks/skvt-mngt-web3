@@ -14,6 +14,7 @@ export interface Department {
   name: string;
   description: string;
   adminId: string;
+  adminName?: string;
   activePoints: number;
   totalShifts: number;
   totalEmployees: number;

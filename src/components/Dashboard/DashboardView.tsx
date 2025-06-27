@@ -230,16 +230,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ onViewChange = () => {} }
   };
 
   const handleAddDepartment = (departmentData: any, adminData: any) => {
-    const newDepartment = {
-      ...departmentData,
-      adminId: `admin-${Date.now()}`,
-      activePoints: 0,
-      totalShifts: 0,
-      totalEmployees: 0,
-    };
-    
-    addDepartment(newDepartment);
-    console.log('New admin to be created:', adminData);
+    return addDepartment(departmentData, adminData);
   };
 
   return (
@@ -327,10 +318,10 @@ const DashboardView: React.FC<DashboardViewProps> = ({ onViewChange = () => {} }
           </div>
 
           {/* Department Overview with Filters */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          {/* <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-base lg:text-lg font-semibold text-gray-900 mb-4 lg:mb-6">Department Overview</h2>
             
-            {/* Filters */}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mb-4 lg:mb-6">
               <div>
                 <label className="block text-xs lg:text-sm font-medium text-gray-700 mb-1 lg:mb-2">Department</label>
@@ -391,7 +382,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ onViewChange = () => {} }
               </div>
             </div>
 
-            {/* Employee Cards */}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 lg:gap-4">
               {advancedFilteredEmployees.map((employee) => {
                 const dutyPoint = dutyPoints.find(p => p.id === employee.dutyPointId);
@@ -415,7 +406,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ onViewChange = () => {} }
                       </div>
                     </div>
                     
-                    {/* Duty Point - Highlighted */}
+
                     {dutyPoint && (
                       <div className="bg-gradient-to-r from-orange-600 to-orange-700 rounded-lg p-2 mb-2 text-white">
                         <div className="flex items-center justify-center">
@@ -425,7 +416,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ onViewChange = () => {} }
                       </div>
                     )}
                     
-                    {/* Phone Number - Prominent Display */}
+
                     <a 
                       href={`tel:${employee.phone}`}
                       className="block bg-white rounded-lg p-2 mb-2 border-2 border-orange-300 hover:bg-orange-50 transition-colors active:bg-orange-100"
@@ -465,7 +456,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ onViewChange = () => {} }
                 <p className="text-gray-500">Try adjusting your filters or search criteria</p>
               </div>
             )}
-          </div>
+          </div> */}
         </>
       )}
 
