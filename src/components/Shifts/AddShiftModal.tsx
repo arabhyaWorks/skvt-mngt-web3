@@ -1,22 +1,25 @@
 import React, { useState } from 'react';
 import { X, Clock, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
+import { API_BASE_URL } from '../../config/api';
 
 interface AddShiftModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
 }
 
-const AddShiftModal: React.FC<AddShiftModalProps> = ({ isOpen, onClose }) => {
+const AddShiftModal: React.FC<AddShiftModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { user } = useAuth();
   const [formData, setFormData] = useState({
     name: '',
     startTime: '',
     endTime: '',
-    isActive: true,
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -37,8 +40,10 @@ const AddShiftModal: React.FC<AddShiftModalProps> = ({ isOpen, onClose }) => {
       const start = new Date(`2000-01-01T${formData.startTime}`);
       const end = new Date(`2000-01-01T${formData.endTime}`);
       
+      // Handle overnight shifts
       if (start >= end) {
-        newErrors.endTime = 'End time must be after start time';
+        // For overnight shifts, end time should be next day
+        end.setDate(end.getDate() + 1);
       }
     }
 
@@ -46,20 +51,85 @@ const AddShiftModal: React.FC<AddShiftModalProps> = ({ isOpen, onClose }) => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const calculateDuration = (startTime: string, endTime: string): number => {
+    if (!startTime || !endTime) return 0;
+    
+    const start = new Date(`2000-01-01T${startTime}`);
+    let end = new Date(`2000-01-01T${endTime}`);
+    
+    // Handle overnight shifts
+    if (start >= end) {
+      end.setDate(end.getDate() + 1);
+    }
+    
+    const diffMs = end.getTime() - start.getTime();
+    return diffMs / (1000 * 60 * 60); // Convert to hours
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitMessage(null);
+    
     if (validateForm()) {
-      console.log('Creating shift:', {
-        ...formData,
-        departmentId: user?.departmentId,
-      });
-      handleClose();
+      setIsSubmitting(true);
+      
+      try {
+        const duration = calculateDuration(formData.startTime, formData.endTime);
+        
+        const response = await fetch(`${API_BASE_URL}/api/shifts`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: formData.name,
+            department_id: parseInt(user?.departmentId || '0'),
+            start_time: `${formData.startTime}:00`,
+            end_time: `${formData.endTime}:00`,
+            duration: duration,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          setSubmitMessage({ 
+            type: 'success', 
+            text: data.message || 'Shift created successfully!' 
+          });
+          
+          // Call success callback to refresh the list
+          if (onSuccess) {
+            onSuccess();
+          }
+          
+          // Close modal after a short delay
+          setTimeout(() => {
+            handleClose();
+          }, 1500);
+        } else {
+          setSubmitMessage({ 
+            type: 'error', 
+            text: data.error || 'Failed to create shift' 
+          });
+        }
+      } catch (error) {
+        console.error('Error creating shift:', error);
+        setSubmitMessage({ 
+          type: 'error', 
+          text: 'Network error occurred. Please try again.' 
+        });
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
   const handleClose = () => {
-    setFormData({ name: '', startTime: '', endTime: '', isActive: true });
+    setFormData({ name: '', startTime: '', endTime: '' });
     setErrors({});
+    setSubmitMessage(null);
+    setIsSubmitting(false);
     onClose();
   };
 
@@ -90,6 +160,7 @@ const AddShiftModal: React.FC<AddShiftModalProps> = ({ isOpen, onClose }) => {
           </div>
           <button
             onClick={handleClose}
+            disabled={isSubmitting}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <X className="h-5 w-5 text-gray-500" />
@@ -110,6 +181,7 @@ const AddShiftModal: React.FC<AddShiftModalProps> = ({ isOpen, onClose }) => {
                 errors.name ? 'border-red-300 bg-red-50' : 'border-gray-300'
               }`}
               placeholder="Enter shift name (e.g., Morning, Evening, Night)"
+              disabled={isSubmitting}
             />
             {errors.name && (
               <p className="mt-1 text-sm text-red-600 flex items-center">
@@ -133,6 +205,7 @@ const AddShiftModal: React.FC<AddShiftModalProps> = ({ isOpen, onClose }) => {
                 className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
                   errors.startTime ? 'border-red-300 bg-red-50' : 'border-gray-300'
                 }`}
+                disabled={isSubmitting}
               />
               {errors.startTime && (
                 <p className="mt-1 text-sm text-red-600 flex items-center">
@@ -159,6 +232,7 @@ const AddShiftModal: React.FC<AddShiftModalProps> = ({ isOpen, onClose }) => {
                 className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
                   errors.endTime ? 'border-red-300 bg-red-50' : 'border-gray-300'
                 }`}
+                disabled={isSubmitting}
               />
               {errors.endTime && (
                 <p className="mt-1 text-sm text-red-600 flex items-center">
@@ -180,56 +254,48 @@ const AddShiftModal: React.FC<AddShiftModalProps> = ({ isOpen, onClose }) => {
               <div className="flex items-center justify-center">
                 <Clock className="h-5 w-5 text-blue-600 mr-2" />
                 <span className="text-blue-900 font-medium">
-                  {formatTimeForDisplay(formData.startTime)} - {formatTimeForDisplay(formData.endTime)}
+                  {formatTimeForDisplay(formData.startTime)} - {formatTimeForDisplay(formData.endTime)} 
+                  ({calculateDuration(formData.startTime, formData.endTime).toFixed(1)}h)
                 </span>
               </div>
             </div>
           )}
 
-          {/* Status */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Status *
-            </label>
-            <div className="flex items-center space-x-6">
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="status"
-                  checked={formData.isActive}
-                  onChange={() => setFormData(prev => ({ ...prev, isActive: true }))}
-                  className="mr-2 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="text-sm text-gray-700">Active</span>
-              </label>
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="status"
-                  checked={!formData.isActive}
-                  onChange={() => setFormData(prev => ({ ...prev, isActive: false }))}
-                  className="mr-2 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="text-sm text-gray-700">Inactive</span>
-              </label>
+          {/* Submit Message */}
+          {submitMessage && (
+            <div className={`p-4 rounded-lg ${
+              submitMessage.type === 'success' 
+                ? 'bg-green-50 border border-green-200 text-green-800' 
+                : 'bg-red-50 border border-red-200 text-red-800'
+            }`}>
+              <div className="flex items-center">
+                {submitMessage.type === 'success' ? (
+                  <div className="w-4 h-4 bg-green-500 rounded-full mr-3 flex-shrink-0"></div>
+                ) : (
+                  <AlertCircle className="h-4 w-4 mr-3 flex-shrink-0" />
+                )}
+                {submitMessage.text}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Action Buttons */}
           <div className="flex justify-end space-x-4 pt-6 border-t">
             <button
               type="button"
               onClick={handleClose}
+              disabled={isSubmitting}
               className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
             >
               Cancel
             </button>
             <button
               type="submit"
+              disabled={isSubmitting}
               className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center space-x-2"
             >
               <Clock className="h-4 w-4" />
-              <span>Create Shift</span>
+              <span>{isSubmitting ? 'Creating...' : 'Create Shift'}</span>
             </button>
           </div>
         </form>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   CheckSquare, 
   Plus, 
@@ -9,62 +9,127 @@ import {
   Users,
   Eye,
   Edit,
-  AlertCircle
+  AlertCircle,
+  Calendar
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
-import { useData } from '../../hooks/useData';
 import AssignDutyModal from './AssignDutyModal';
+
+import { API_BASE_URL } from '../../config/api';
 
 const AssignDutyView: React.FC = () => {
   const { user } = useAuth();
-  const { employees, dutyPoints, shifts } = useData();
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [dutyPoints, setDutyPoints] = useState<any[]>([]);
+  const [shifts, setShifts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Filter data based on user role
-  const filteredData = () => {
-    if (user?.role === 'department_admin' && user.departmentId) {
-      return {
-        employees: employees.filter(e => e.departmentId === user.departmentId),
-        dutyPoints: dutyPoints.filter(p => p.departmentId === user.departmentId),
-        shifts: shifts.filter(s => s.departmentId === user.departmentId),
-      };
+  // Fetch department data and employees
+  const fetchData = async () => {
+    if (!user?.departmentId) {
+      setError('Department ID not found');
+      setLoading(false);
+      return;
     }
-    return { employees, dutyPoints, shifts };
+
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Fetch department details (duty points and shifts)
+      const deptResponse = await fetch(`${API_BASE_URL}/api/departments/${user.departmentId}`, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (deptResponse.ok) {
+        const deptData = await deptResponse.json();
+        setDutyPoints(deptData.duty_points || []);
+        setShifts(deptData.shifts || []);
+      }
+
+      // Fetch employees
+      const empResponse = await fetch(`${API_BASE_URL}/api/users?role=Employee&department_id=${user.departmentId}`, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (empResponse.ok) {
+        const empData = await empResponse.json();
+        setEmployees(empData.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      setError('Network error occurred');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const { employees: deptEmployees, dutyPoints: deptDutyPoints, shifts: deptShifts } = filteredData();
+  // Initial data fetch
+  useEffect(() => {
+    if (user?.departmentId) {
+      fetchData();
+    }
+  }, [user?.departmentId]);
 
   // Get active duties (employees with assignments)
-  const activeDuties = deptEmployees.filter(emp => emp.dutyPointId && emp.shiftId && emp.isActive);
+  const activeDuties = employees.filter(emp => 
+    emp.active && emp.duty_point_id && emp.shift_id
+  );
 
   // Filter active duties based on search
   const filteredActiveDuties = activeDuties.filter(duty => {
-    const dutyPoint = deptDutyPoints.find(p => p.id === duty.dutyPointId);
-    const shift = deptShifts.find(s => s.id === duty.shiftId);
+    const dutyPoint = dutyPoints.find(p => p.duty_point_id.toString() === duty.duty_point_id);
+    const shift = shifts.find(s => s.shift_id.toString() === duty.shift_id);
     
     return duty.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
            dutyPoint?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
            shift?.name.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
-  const getDutyPoint = (dutyPointId?: string) => {
+  const getDutyPoint = (dutyPointId?: string | number) => {
     if (!dutyPointId) return null;
-    return deptDutyPoints.find(point => point.id === dutyPointId);
+    return dutyPoints.find(point => point.duty_point_id.toString() === dutyPointId.toString());
   };
 
-  const getShift = (shiftId?: string) => {
+  const getShift = (shiftId?: string | number) => {
     if (!shiftId) return null;
-    return deptShifts.find(shift => shift.id === shiftId);
+    return shifts.find(shift => shift.shift_id.toString() === shiftId.toString());
   };
 
   const formatTime = (time: string) => {
+    if (!time) return '';
     const [hours, minutes] = time.split(':');
-    const hour = parseInt(hours);
+    let hour = parseInt(hours);
+    
+    if (hour === 24) hour = 0;
+    
     const ampm = hour >= 12 ? 'PM' : 'AM';
     const displayHour = hour % 12 || 12;
     return `${displayHour}:${minutes} ${ampm}`;
   };
+
+  const handleAssignmentSuccess = () => {
+    // Refresh the data after successful assignment
+    fetchData();
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-orange-200 border-t-orange-600 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading assignment data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -102,9 +167,7 @@ const AssignDutyView: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">Available Staff</p>
-              <p className="text-2xl font-bold text-blue-600">
-                {deptEmployees.filter(e => !e.dutyPointId && e.isActive).length}
-              </p>
+              <p className="text-2xl font-bold text-blue-600">{employees.filter(e => !e.active).length}</p>
             </div>
             <Users className="h-8 w-8 text-blue-500" />
           </div>
@@ -114,7 +177,7 @@ const AssignDutyView: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">Duty Points</p>
-              <p className="text-2xl font-bold text-orange-600">{deptDutyPoints.length}</p>
+              <p className="text-2xl font-bold text-orange-600">{dutyPoints.length}</p>
             </div>
             <MapPin className="h-8 w-8 text-orange-500" />
           </div>
@@ -124,14 +187,22 @@ const AssignDutyView: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">Active Shifts</p>
-              <p className="text-2xl font-bold text-purple-600">
-                {deptShifts.filter(s => s.isActive).length}
-              </p>
+              <p className="text-2xl font-bold text-purple-600">{shifts.length}</p>
             </div>
             <Clock className="h-8 w-8 text-purple-500" />
           </div>
         </div>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          <div className="flex items-center">
+            <AlertCircle className="h-4 w-4 mr-2" />
+            {error}
+          </div>
+        </div>
+      )}
 
       {/* Search */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -176,8 +247,8 @@ const AssignDutyView: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredActiveDuties.map((duty) => {
-              const dutyPoint = getDutyPoint(duty.dutyPointId);
-              const shift = getShift(duty.shiftId);
+              const dutyPoint = getDutyPoint(duty.duty_point_id);
+              const shift = getShift(duty.shift_id);
               
               return (
                 <div
@@ -191,7 +262,7 @@ const AssignDutyView: React.FC = () => {
                         <h3 className="text-lg font-semibold text-gray-900 mb-1">
                           {duty.name}
                         </h3>
-                        <p className="text-sm text-gray-600 mb-2">{duty.designation}</p>
+                        <p className="text-sm text-gray-600 mb-2">ID: {duty.user_id}</p>
                         <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800 border border-green-200">
                           On Duty
                         </span>
@@ -217,14 +288,21 @@ const AssignDutyView: React.FC = () => {
                       {shift && (
                         <div className="flex items-center text-sm text-gray-600">
                           <Clock className="h-4 w-4 mr-2" />
-                          <span>{formatTime(shift.startTime)} - {formatTime(shift.endTime)}</span>
+                          <span>{formatTime(shift.start_time)} - {formatTime(shift.end_time)}</span>
                         </div>
                       )}
                       
                       <div className="flex items-center text-sm text-gray-600">
-                        <Users className="h-4 w-4 mr-2" />
+                        <span className="mr-2">📞</span>
                         <span>{duty.phone}</span>
                       </div>
+                      
+                      {duty.from_date && duty.to_date && (
+                        <div className="flex items-center text-sm text-gray-600">
+                          <Calendar className="h-4 w-4 mr-2" />
+                          <span>{new Date(duty.from_date).toLocaleDateString()} - {new Date(duty.to_date).toLocaleDateString()}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -253,6 +331,7 @@ const AssignDutyView: React.FC = () => {
       <AssignDutyModal
         isOpen={showAssignModal}
         onClose={() => setShowAssignModal(false)}
+        onSuccess={handleAssignmentSuccess}
       />
     </div>
   );

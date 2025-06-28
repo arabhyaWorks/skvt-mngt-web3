@@ -10,37 +10,94 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
-import { useData } from '../../hooks/useData';
+import { API_BASE_URL } from '../../config/api';
 import AddDutyPointModal from './AddDutyPointModal';
+
+interface DutyPoint {
+  duty_point_id: number;
+  name: string;
+  description: string;
+  coordinate: string;
+  department_id: number;
+  num_people: number;
+}
 
 const DutyPointsView: React.FC = () => {
   const { user } = useAuth();
-  const { dutyPoints, employees, shifts } = useData();
+  const [dutyPoints, setDutyPoints] = useState<DutyPoint[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
-  // Filter duty points based on user role
+  // Fetch duty points from API
+  const fetchDutyPoints = async () => {
+    if (!user?.departmentId) {
+      setError('Department ID not found');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch(`${API_BASE_URL}/api/departments/${user.departmentId}`, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setDutyPoints(data.duty_points || []);
+      } else {
+        setError('Failed to fetch duty points');
+      }
+    } catch (error) {
+      console.error('Error fetching duty points:', error);
+      setError('Network error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initial data fetch
+  React.useEffect(() => {
+    if (user?.departmentId) {
+      fetchDutyPoints();
+    }
+  }, [user?.departmentId]);
+
+  // Filter duty points based on search
   const filteredDutyPoints = dutyPoints.filter(point => {
     const matchesSearch = point.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          point.description.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || 
-                         (statusFilter === 'active' ? point.isActive : !point.isActive);
-    
-    if (user?.role === 'department_admin' && user.departmentId) {
-      return point.departmentId === user.departmentId && matchesSearch && matchesStatus;
-    }
-    
-    return matchesSearch && matchesStatus;
+    return matchesSearch;
   });
 
-  const getAssignedEmployee = (pointId: string) => {
-    return employees.find(emp => emp.dutyPointId === pointId);
+  const handleDutyPointCreated = () => {
+    // Refresh the duty points list
+    fetchDutyPoints();
   };
 
-  const getAssignedShift = (pointId: string) => {
-    return shifts.find(shift => shift.dutyPointId === pointId);
+  const formatCoordinate = (coordinate: string) => {
+    if (!coordinate) return 'No coordinates';
+    // Convert "12.34,56.78" to a more readable format
+    const [lat, lng] = coordinate.split(',');
+    return `${lat}°, ${lng}°`;
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-orange-200 border-t-orange-600 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading duty points...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -64,9 +121,10 @@ const DutyPointsView: React.FC = () => {
 
       {/* Filters and Search */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex flex-col sm:flex-row gap-4 items-end">
           {/* Search */}
           <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Search</label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
               <input
@@ -78,34 +136,30 @@ const DutyPointsView: React.FC = () => {
               />
             </div>
           </div>
-
-          {/* Status Filter */}
-          <div className="sm:w-48">
-            <div className="relative">
-              <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as any)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 appearance-none"
-              >
-                <option value="all">All Status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            </div>
-          </div>
+        </div>
+        
+        {/* Results Count */}
+        <div className="mt-4 text-sm text-gray-600">
+          Showing {filteredDutyPoints.length} of {dutyPoints.length} duty points
         </div>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          <div className="flex items-center">
+            <AlertCircle className="h-4 w-4 mr-2" />
+            {error}
+          </div>
+        </div>
+      )}
 
       {/* Duty Points Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredDutyPoints.map((point) => {
-          const assignedEmployee = getAssignedEmployee(point.id);
-          const assignedShift = getAssignedShift(point.id);
-          
           return (
             <div
-              key={point.id}
+              key={point.duty_point_id}
               className="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md hover:border-orange-200 transition-all duration-200 overflow-hidden"
             >
               {/* Point Header */}
@@ -115,12 +169,8 @@ const DutyPointsView: React.FC = () => {
                     <h3 className="text-lg font-semibold text-gray-900 mb-2">
                       {point.name}
                     </h3>
-                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full border ${
-                      point.isActive 
-                        ? 'bg-green-100 text-green-800 border-green-200' 
-                        : 'bg-red-100 text-red-800 border-red-200'
-                    }`}>
-                      {point.isActive ? 'Active' : 'Inactive'}
+                    <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full border bg-green-100 text-green-800 border-green-200">
+                      Active
                     </span>
                   </div>
                   <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0 ml-3">
@@ -128,7 +178,7 @@ const DutyPointsView: React.FC = () => {
                   </div>
                 </div>
                 
-                {point.description && (
+                {point.description && point.description.trim() && (
                   <p className="text-sm text-gray-600 mb-4 line-clamp-2">
                     {point.description}
                   </p>
@@ -137,7 +187,7 @@ const DutyPointsView: React.FC = () => {
                 {/* GPS Coordinates */}
                 <div className="flex items-center text-sm text-gray-500 mb-4">
                   <Navigation className="h-4 w-4 mr-2" />
-                  <span>{point.location}</span>
+                  <span>{formatCoordinate(point.coordinate)}</span>
                 </div>
               </div>
 
@@ -146,29 +196,17 @@ const DutyPointsView: React.FC = () => {
                 <div className="bg-gray-50 rounded-lg p-4 space-y-3">
                   <h4 className="text-sm font-medium text-gray-700">Current Assignment</h4>
                   
-                  {assignedEmployee ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">Employee:</span>
-                        <span className="text-sm font-medium text-gray-900">{assignedEmployee.name}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">Phone:</span>
-                        <span className="text-sm text-gray-900">{assignedEmployee.phone}</span>
-                      </div>
-                      {assignedShift && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-600">Shift:</span>
-                          <span className="text-sm text-gray-900">
-                            {assignedShift.startTime} - {assignedShift.endTime}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Assigned Staff:</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      {point.num_people} {point.num_people === 1 ? 'person' : 'people'}
+                    </span>
+                  </div>
+                  
+                  {point.num_people === 0 && (
                     <div className="flex items-center text-sm text-amber-600">
                       <AlertCircle className="h-4 w-4 mr-2" />
-                      <span>No employee assigned</span>
+                      <span>No staff assigned</span>
                     </div>
                   )}
                 </div>
@@ -199,12 +237,12 @@ const DutyPointsView: React.FC = () => {
           <MapPin className="h-12 w-12 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No duty points found</h3>
           <p className="text-gray-500 mb-4">
-            {searchTerm || statusFilter !== 'all' 
+            {searchTerm 
               ? 'Try adjusting your search or filter criteria'
               : 'Get started by creating your first duty point'
             }
           </p>
-          {!searchTerm && statusFilter === 'all' && (
+          {!searchTerm && (
             <button
               onClick={() => setShowAddModal(true)}
               className="inline-flex items-center px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
@@ -220,6 +258,7 @@ const DutyPointsView: React.FC = () => {
       <AddDutyPointModal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
+        onSuccess={handleDutyPointCreated}
       />
     </div>
   );

@@ -1,22 +1,25 @@
 import React, { useState } from 'react';
 import { X, MapPin, Navigation, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
+import { API_BASE_URL } from '../../config/api';
 
 interface AddDutyPointModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
 }
 
-const AddDutyPointModal: React.FC<AddDutyPointModalProps> = ({ isOpen, onClose }) => {
+const AddDutyPointModal: React.FC<AddDutyPointModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { user } = useAuth();
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    location: '',
-    isActive: true,
+    coordinate: '',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -25,12 +28,13 @@ const AddDutyPointModal: React.FC<AddDutyPointModalProps> = ({ isOpen, onClose }
       newErrors.name = 'Duty point name is required';
     }
 
-    if (!formData.location.trim()) {
-      newErrors.location = 'GPS coordinates are required';
-    } else if (!/^-?\d+\.?\d*°?\s*[NS],?\s*-?\d+\.?\d*°?\s*[EW]$/.test(formData.location.replace(/\s/g, ' '))) {
-      // Basic GPS coordinate validation
-      if (!formData.location.includes('°') || (!formData.location.includes('N') && !formData.location.includes('S'))) {
-        newErrors.location = 'Please enter valid GPS coordinates (e.g., 28.5355° N, 83.0076° E)';
+    if (!formData.coordinate.trim()) {
+      newErrors.coordinate = 'GPS coordinates are required';
+    } else {
+      // Basic coordinate validation - should be in format like "12.34,56.78"
+      const coordinatePattern = /^-?\d+\.?\d*,-?\d+\.?\d*$/;
+      if (!coordinatePattern.test(formData.coordinate.replace(/\s/g, ''))) {
+        newErrors.coordinate = 'Please enter valid coordinates in format: latitude,longitude (e.g., 12.34,56.78)';
       }
     }
 
@@ -38,21 +42,67 @@ const AddDutyPointModal: React.FC<AddDutyPointModalProps> = ({ isOpen, onClose }
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitMessage(null);
+    
     if (validateForm()) {
-      // Here you would typically call an API to create the duty point
-      console.log('Creating duty point:', {
-        ...formData,
-        departmentId: user?.departmentId,
-      });
-      handleClose();
+      setIsSubmitting(true);
+      
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/duty_points`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: formData.name,
+            description: formData.description,
+            coordinate: formData.coordinate.replace(/\s/g, ''), // Remove any spaces
+            department_id: parseInt(user?.departmentId || '0'),
+          }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          setSubmitMessage({ 
+            type: 'success', 
+            text: data.message || 'Duty point created successfully!' 
+          });
+          
+          // Call success callback to refresh the list
+          if (onSuccess) {
+            onSuccess();
+          }
+          
+          // Close modal after a short delay
+          setTimeout(() => {
+            handleClose();
+          }, 1500);
+        } else {
+          setSubmitMessage({ 
+            type: 'error', 
+            text: data.error || 'Failed to create duty point' 
+          });
+        }
+      } catch (error) {
+        console.error('Error creating duty point:', error);
+        setSubmitMessage({ 
+          type: 'error', 
+          text: 'Network error occurred. Please try again.' 
+        });
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
   const handleClose = () => {
-    setFormData({ name: '', description: '', location: '', isActive: true });
+    setFormData({ name: '', description: '', coordinate: '' });
     setErrors({});
+    setSubmitMessage(null);
+    setIsSubmitting(false);
     onClose();
   };
 
@@ -74,6 +124,7 @@ const AddDutyPointModal: React.FC<AddDutyPointModalProps> = ({ isOpen, onClose }
           </div>
           <button
             onClick={handleClose}
+            disabled={isSubmitting}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <X className="h-5 w-5 text-gray-500" />
@@ -94,6 +145,7 @@ const AddDutyPointModal: React.FC<AddDutyPointModalProps> = ({ isOpen, onClose }
                 errors.name ? 'border-red-300 bg-red-50' : 'border-gray-300'
               }`}
               placeholder="Enter duty point name (e.g., YSK1, Gate No. 4)"
+              disabled={isSubmitting}
             />
             {errors.name && (
               <p className="mt-1 text-sm text-red-600 flex items-center">
@@ -114,6 +166,7 @@ const AddDutyPointModal: React.FC<AddDutyPointModalProps> = ({ isOpen, onClose }
               rows={3}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
               placeholder="Enter description of the duty point and its responsibilities"
+              disabled={isSubmitting}
             />
           </div>
 
@@ -126,69 +179,61 @@ const AddDutyPointModal: React.FC<AddDutyPointModalProps> = ({ isOpen, onClose }
               <Navigation className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
               <input
                 type="text"
-                value={formData.location}
-                onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
+                value={formData.coordinate}
+                onChange={(e) => setFormData(prev => ({ ...prev, coordinate: e.target.value }))}
                 className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors ${
-                  errors.location ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                  errors.coordinate ? 'border-red-300 bg-red-50' : 'border-gray-300'
                 }`}
-                placeholder="28.5355° N, 83.0076° E"
+                placeholder="12.34,56.78"
+                disabled={isSubmitting}
               />
             </div>
-            {errors.location && (
+            {errors.coordinate && (
               <p className="mt-1 text-sm text-red-600 flex items-center">
                 <AlertCircle className="h-4 w-4 mr-1" />
-                {errors.location}
+                {errors.coordinate}
               </p>
             )}
             <p className="mt-1 text-xs text-gray-500">
-              Enter GPS coordinates in format: Latitude° N/S, Longitude° E/W
+              Enter GPS coordinates in format: latitude,longitude (e.g., 12.34,56.78)
             </p>
           </div>
 
-          {/* Status */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Status *
-            </label>
-            <div className="flex items-center space-x-6">
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="status"
-                  checked={formData.isActive}
-                  onChange={() => setFormData(prev => ({ ...prev, isActive: true }))}
-                  className="mr-2 text-orange-600 focus:ring-orange-500"
-                />
-                <span className="text-sm text-gray-700">Active</span>
-              </label>
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="status"
-                  checked={!formData.isActive}
-                  onChange={() => setFormData(prev => ({ ...prev, isActive: false }))}
-                  className="mr-2 text-orange-600 focus:ring-orange-500"
-                />
-                <span className="text-sm text-gray-700">Inactive</span>
-              </label>
+          {/* Submit Message */}
+          {submitMessage && (
+            <div className={`p-4 rounded-lg ${
+              submitMessage.type === 'success' 
+                ? 'bg-green-50 border border-green-200 text-green-800' 
+                : 'bg-red-50 border border-red-200 text-red-800'
+            }`}>
+              <div className="flex items-center">
+                {submitMessage.type === 'success' ? (
+                  <div className="w-4 h-4 bg-green-500 rounded-full mr-3 flex-shrink-0"></div>
+                ) : (
+                  <AlertCircle className="h-4 w-4 mr-3 flex-shrink-0" />
+                )}
+                {submitMessage.text}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Action Buttons */}
           <div className="flex justify-end space-x-4 pt-6 border-t">
             <button
               type="button"
               onClick={handleClose}
+              disabled={isSubmitting}
               className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
             >
               Cancel
             </button>
             <button
               type="submit"
+              disabled={isSubmitting}
               className="px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium flex items-center space-x-2"
             >
               <MapPin className="h-4 w-4" />
-              <span>Create Duty Point</span>
+              <span>{isSubmitting ? 'Creating...' : 'Create Duty Point'}</span>
             </button>
           </div>
         </form>

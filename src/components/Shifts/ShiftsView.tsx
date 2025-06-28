@@ -11,48 +11,101 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
-import { useData } from '../../hooks/useData';
+import { API_BASE_URL } from '../../config/api';
 import AddShiftModal from './AddShiftModal';
+
+interface Shift {
+  shift_id: number;
+  name: string;
+  start_time: string;
+  end_time: string;
+  duration: number;
+  department_id: number;
+}
 
 const ShiftsView: React.FC = () => {
   const { user } = useAuth();
-  const { shifts, employees, dutyPoints } = useData();
+  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
-  // Filter shifts based on user role
+  // Fetch shifts from API
+  const fetchShifts = async () => {
+    if (!user?.departmentId) {
+      setError('Department ID not found');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch(`${API_BASE_URL}/api/departments/${user.departmentId}`, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setShifts(data.shifts || []);
+      } else {
+        setError('Failed to fetch shifts');
+      }
+    } catch (error) {
+      console.error('Error fetching shifts:', error);
+      setError('Network error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initial data fetch
+  React.useEffect(() => {
+    if (user?.departmentId) {
+      fetchShifts();
+    }
+  }, [user?.departmentId]);
+
+  // Filter shifts based on search
   const filteredShifts = shifts.filter(shift => {
     const matchesSearch = shift.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || 
-                         (statusFilter === 'active' ? shift.isActive : !shift.isActive);
-    
-    if (user?.role === 'department_admin' && user.departmentId) {
-      return shift.departmentId === user.departmentId && matchesSearch && matchesStatus;
-    }
-    
-    return matchesSearch && matchesStatus;
+    return matchesSearch;
   });
 
-  const getDutyPoint = (dutyPointId: string) => {
-    return dutyPoints.find(point => point.id === dutyPointId);
+  const handleShiftCreated = () => {
+    // Refresh the shifts list
+    fetchShifts();
   };
 
-  const getInCharge = (inChargeId: string) => {
-    return employees.find(emp => emp.id === inChargeId);
-  };
-
-  const getShiftEmployees = (employeeIds: string[]) => {
-    return employees.filter(emp => employeeIds.includes(emp.id));
-  };
-
-  const formatTime = (time: string) => {
-    const [hours, minutes] = time.split(':');
-    const hour = parseInt(hours);
+  // Helper function to format time from API format
+  const formatApiTime = (timeString: string) => {
+    if (!timeString) return '';
+    // Handle format like "16:00:00.000000" or "24:00:00.000000"
+    const [hours, minutes] = timeString.split(':');
+    let hour = parseInt(hours);
+    
+    // Handle 24:00 as midnight
+    if (hour === 24) hour = 0;
+    
     const ampm = hour >= 12 ? 'PM' : 'AM';
     const displayHour = hour % 12 || 12;
     return `${displayHour}:${minutes} ${ampm}`;
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-orange-200 border-t-orange-600 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading shifts...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -76,9 +129,10 @@ const ShiftsView: React.FC = () => {
 
       {/* Filters and Search */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex flex-col sm:flex-row gap-4 items-end">
           {/* Search */}
           <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Search</label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
               <input
@@ -90,37 +144,29 @@ const ShiftsView: React.FC = () => {
               />
             </div>
           </div>
-
-          {/* Status Filter */}
-          <div className="sm:w-48">
-            <div className="relative">
-              <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as any)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 appearance-none"
-              >
-                <option value="all">All Status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            </div>
-          </div>
+        </div>
+        
+        {/* Results Count */}
+        <div className="mt-4 text-sm text-gray-600">
+          Showing {filteredShifts.length} of {shifts.length} shifts
         </div>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          <div className="flex items-center">
+            <AlertCircle className="h-4 w-4 mr-2" />
+            {error}
+          </div>
+        </div>
+      )}
 
       {/* Shifts Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {filteredShifts.map((shift) => {
-          const dutyPoint = getDutyPoint(shift.dutyPointId);
-          const inCharge = getInCharge(shift.inChargeId);
-          const shiftEmployees = getShiftEmployees(shift.employeeIds);
-          
           return (
-            <div
-              key={shift.id}
-              className="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md hover:border-orange-200 transition-all duration-200 overflow-hidden"
-            >
+            <div key={shift.shift_id} className="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md hover:border-orange-200 transition-all duration-200 overflow-hidden">
               {/* Shift Header */}
               <div className="p-6 pb-4">
                 <div className="flex items-start justify-between mb-3">
@@ -128,12 +174,8 @@ const ShiftsView: React.FC = () => {
                     <h3 className="text-lg font-semibold text-gray-900 mb-2">
                       {shift.name}
                     </h3>
-                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full border ${
-                      shift.isActive 
-                        ? 'bg-green-100 text-green-800 border-green-200' 
-                        : 'bg-red-100 text-red-800 border-red-200'
-                    }`}>
-                      {shift.isActive ? 'Active' : 'Inactive'}
+                    <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full border bg-green-100 text-green-800 border-green-200">
+                      Active
                     </span>
                   </div>
                   <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0 ml-3">
@@ -146,60 +188,46 @@ const ShiftsView: React.FC = () => {
                   <div className="flex items-center justify-center">
                     <Clock className="h-4 w-4 text-blue-600 mr-2" />
                     <span className="text-lg font-semibold text-blue-900">
-                      {formatTime(shift.startTime)} - {formatTime(shift.endTime)}
+                      {formatApiTime(shift.start_time)} - {formatApiTime(shift.end_time)}
                     </span>
                   </div>
-                </div>
-
-                {/* Duty Point */}
-                {dutyPoint && (
-                  <div className="flex items-center text-sm text-gray-600 mb-3">
-                    <MapPin className="h-4 w-4 mr-2" />
-                    <span>{dutyPoint.name}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Staff Information */}
-              <div className="px-6 pb-4">
-                <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-                  <h4 className="text-sm font-medium text-gray-700">Staff Assignment</h4>
-                  
-                  {/* In-charge */}
-                  {inCharge && (
-                    <div className="bg-white rounded-lg p-3 border border-gray-200">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-medium text-orange-600 uppercase tracking-wide">In-charge</span>
-                        <Users className="h-4 w-4 text-orange-600" />
-                      </div>
-                      <div className="space-y-1">
-                        <p className="font-medium text-gray-900">{inCharge.name}</p>
-                        <p className="text-sm text-gray-600">{inCharge.phone}</p>
-                      </div>
+                  {shift.duration && (
+                    <div className="text-center mt-1">
+                      <span className="text-sm text-blue-700">
+                        Duration: {shift.duration} hours
+                      </span>
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Shift Details */}
+              <div className="px-6 pb-4">
+                <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                  <h4 className="text-sm font-medium text-gray-700">Shift Details</h4>
                   
-                  {/* Team Members */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-gray-600">Team Members:</span>
-                      <span className="text-sm font-medium text-gray-900">{shiftEmployees.length} employees</span>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-600">Start Time:</span>
+                      <span className="ml-2 font-medium">{formatApiTime(shift.start_time)}</span>
                     </div>
-                    
-                    {shiftEmployees.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {shiftEmployees.map((emp) => (
-                          <span key={emp.id} className="inline-flex items-center px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded">
-                            {emp.name}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="flex items-center text-sm text-amber-600">
-                        <AlertCircle className="h-4 w-4 mr-2" />
-                        <span>No employees assigned</span>
+                    <div>
+                      <span className="text-gray-600">End Time:</span>
+                      <span className="ml-2 font-medium">{formatApiTime(shift.end_time)}</span>
+                    </div>
+                    {shift.duration && (
+                      <div className="col-span-2">
+                        <span className="text-gray-600">Duration:</span>
+                        <span className="ml-2 font-medium">{shift.duration} hours</span>
                       </div>
                     )}
+                  </div>
+                  
+                  <div className="pt-2 border-t border-gray-200">
+                    <div className="flex items-center text-sm text-amber-600">
+                      <AlertCircle className="h-4 w-4 mr-2" />
+                      <span>No staff assigned to this shift yet</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -229,12 +257,12 @@ const ShiftsView: React.FC = () => {
           <Clock className="h-12 w-12 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No shifts found</h3>
           <p className="text-gray-500 mb-4">
-            {searchTerm || statusFilter !== 'all' 
-              ? 'Try adjusting your search or filter criteria'
+            {searchTerm 
+              ? 'Try adjusting your search criteria'
               : 'Get started by creating your first shift'
             }
           </p>
-          {!searchTerm && statusFilter === 'all' && (
+          {!searchTerm && (
             <button
               onClick={() => setShowAddModal(true)}
               className="inline-flex items-center px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
@@ -250,6 +278,7 @@ const ShiftsView: React.FC = () => {
       <AddShiftModal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
+        onSuccess={handleShiftCreated}
       />
     </div>
   );

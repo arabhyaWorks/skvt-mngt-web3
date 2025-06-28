@@ -1,40 +1,124 @@
-import React, { useState } from 'react';
-import { X, CheckSquare, MapPin, Clock, Users, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, CheckSquare, MapPin, Clock, Users, AlertCircle, Calendar } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
-import { useData } from '../../hooks/useData';
+import { API_BASE_URL } from '../../config/api';
 
 interface AssignDutyModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
 }
 
-const AssignDutyModal: React.FC<AssignDutyModalProps> = ({ isOpen, onClose }) => {
+interface DutyPoint {
+  duty_point_id: number;
+  name: string;
+  description: string;
+}
+
+interface Shift {
+  shift_id: number;
+  name: string;
+  start_time: string;
+  end_time: string;
+  duration: number;
+}
+
+interface Employee {
+  user_id: number;
+  name: string;
+  email: string;
+  phone: string;
+  role: string;
+  department_id: number;
+  active: boolean;
+  shift_id: string;
+  duty_point_id: string;
+}
+
+const AssignDutyModal: React.FC<AssignDutyModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { user } = useAuth();
-  const { employees, dutyPoints, shifts } = useData();
+  const [dutyPoints, setDutyPoints] = useState<DutyPoint[]>([]);
+  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
   const [formData, setFormData] = useState({
     dutyPointId: '',
     shiftId: '',
-    employeeIds: [] as string[],
+    employeeId: '',
+    startDate: '',
+    endDate: '',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Filter data based on user role
-  const filteredData = () => {
-    if (user?.role === 'department_admin' && user.departmentId) {
-      return {
-        employees: employees.filter(e => e.departmentId === user.departmentId),
-        dutyPoints: dutyPoints.filter(p => p.departmentId === user.departmentId),
-        shifts: shifts.filter(s => s.departmentId === user.departmentId),
-      };
+  // Fetch department data (duty points and shifts)
+  const fetchDepartmentData = async () => {
+    if (!user?.departmentId) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch(`${API_BASE_URL}/api/departments/${user.departmentId}`, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setDutyPoints(data.duty_points || []);
+        setShifts(data.shifts || []);
+      } else {
+        setError('Failed to fetch department data');
+      }
+    } catch (error) {
+      console.error('Error fetching department data:', error);
+      setError('Network error occurred');
+    } finally {
+      setLoading(false);
     }
-    return { employees, dutyPoints, shifts };
   };
 
-  const { employees: deptEmployees, dutyPoints: deptDutyPoints, shifts: deptShifts } = filteredData();
+  // Fetch employees for the department
+  const fetchEmployees = async () => {
+    if (!user?.departmentId) return;
 
-  // Get available employees (not currently assigned)
-  const availableEmployees = deptEmployees.filter(emp => !emp.dutyPointId && emp.isActive);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users?role=Employee&department_id=${user.departmentId}`, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setEmployees(data.data || []);
+      } else {
+        setError('Failed to fetch employees');
+      }
+    } catch (error) {
+      console.error('Error fetching employees:', error);
+      setError('Network error occurred');
+    }
+  };
+
+  // Load data when modal opens
+  useEffect(() => {
+    if (isOpen && user?.departmentId) {
+      fetchDepartmentData();
+      fetchEmployees();
+    }
+  }, [isOpen, user?.departmentId]);
+
+  // Get available (inactive) employees
+  const availableEmployees = employees.filter(emp => 
+    !emp.active && (!emp.shift_id || emp.shift_id === '') && (!emp.duty_point_id || emp.duty_point_id === '')
+  );
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -47,47 +131,126 @@ const AssignDutyModal: React.FC<AssignDutyModalProps> = ({ isOpen, onClose }) =>
       newErrors.shiftId = 'Please select a shift';
     }
 
-    if (formData.employeeIds.length === 0) {
-      newErrors.employeeIds = 'Please select at least one employee';
+    if (!formData.employeeId) {
+      newErrors.employeeId = 'Please select an employee';
+    }
+
+    if (!formData.startDate) {
+      newErrors.startDate = 'Please select start date';
+    }
+
+    if (!formData.endDate) {
+      newErrors.endDate = 'Please select end date';
+    }
+
+    if (formData.startDate && formData.endDate) {
+      const startDate = new Date(formData.startDate);
+      const endDate = new Date(formData.endDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      if (startDate < today) {
+        newErrors.startDate = 'Start date cannot be in the past';
+      }
+
+      if (endDate <= startDate) {
+        newErrors.endDate = 'End date must be after start date';
+      }
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitMessage(null);
+    
     if (validateForm()) {
-      console.log('Assigning duty:', formData);
-      // Here you would typically call an API to assign the duty
-      handleClose();
+      setIsSubmitting(true);
+      
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/shift_assignments`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            duty_point_id: parseInt(formData.dutyPointId),
+            shift_id: parseInt(formData.shiftId),
+            employee_id: parseInt(formData.employeeId),
+            department_id: parseInt(user?.departmentId || '0'),
+            start_date: formData.startDate,
+            end_date: formData.endDate,
+          }),
+        });
+
+        if (response.ok) {
+          setSubmitMessage({ 
+            type: 'success', 
+            text: 'Duty assignment created successfully!' 
+          });
+          
+          // Call success callback to refresh the list
+          if (onSuccess) {
+            onSuccess();
+          }
+          
+          // Close modal after a short delay
+          setTimeout(() => {
+            handleClose();
+          }, 1500);
+        } else {
+          const errorData = await response.json();
+          setSubmitMessage({ 
+            type: 'error', 
+            text: errorData.error || 'Failed to create assignment' 
+          });
+        }
+      } catch (error) {
+        console.error('Error creating assignment:', error);
+        setSubmitMessage({ 
+          type: 'error', 
+          text: 'Network error occurred. Please try again.' 
+        });
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
   const handleClose = () => {
-    setFormData({ dutyPointId: '', shiftId: '', employeeIds: [] });
+    setFormData({ dutyPointId: '', shiftId: '', employeeId: '', startDate: '', endDate: '' });
     setErrors({});
+    setSubmitMessage(null);
+    setIsSubmitting(false);
+    setError(null);
     onClose();
   };
 
-  const handleEmployeeToggle = (employeeId: string) => {
-    setFormData(prev => ({
-      ...prev,
-      employeeIds: prev.employeeIds.includes(employeeId)
-        ? prev.employeeIds.filter(id => id !== employeeId)
-        : [...prev.employeeIds, employeeId]
-    }));
-  };
-
-  const selectedDutyPoint = deptDutyPoints.find(p => p.id === formData.dutyPointId);
-  const selectedShift = deptShifts.find(s => s.id === formData.shiftId);
+  const selectedDutyPoint = dutyPoints.find(p => p.duty_point_id.toString() === formData.dutyPointId);
+  const selectedShift = shifts.find(s => s.shift_id.toString() === formData.shiftId);
+  const selectedEmployee = employees.find(e => e.user_id.toString() === formData.employeeId);
 
   const formatTime = (time: string) => {
+    if (!time) return '';
     const [hours, minutes] = time.split(':');
-    const hour = parseInt(hours);
+    let hour = parseInt(hours);
+    
+    if (hour === 24) hour = 0;
+    
     const ampm = hour >= 12 ? 'PM' : 'AM';
     const displayHour = hour % 12 || 12;
     return `${displayHour}:${minutes} ${ampm}`;
+  };
+
+  const formatDate = (dateString: string) => {
+    if (!dateString) return '';
+    return new Date(dateString).toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
   };
 
   if (!isOpen) return null;
@@ -108,155 +271,255 @@ const AssignDutyModal: React.FC<AssignDutyModalProps> = ({ isOpen, onClose }) =>
           </div>
           <button
             onClick={handleClose}
+            disabled={isSubmitting}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <X className="h-5 w-5 text-gray-500" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* Duty Point Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Duty Point *
-            </label>
-            <div className="relative">
-              <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <select
-                value={formData.dutyPointId}
-                onChange={(e) => setFormData(prev => ({ ...prev, dutyPointId: e.target.value }))}
-                className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors ${
-                  errors.dutyPointId ? 'border-red-300 bg-red-50' : 'border-gray-300'
-                }`}
+        {/* Loading State */}
+        {loading && (
+          <div className="p-6 text-center">
+            <div className="w-8 h-8 border-4 border-orange-200 border-t-orange-600 rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading department data...</p>
+          </div>
+        )}
+
+        {/* Error State */}
+        {error && (
+          <div className="p-6">
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+              <div className="flex items-center">
+                <AlertCircle className="h-4 w-4 mr-2" />
+                {error}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Form */}
+        {!loading && !error && (
+          <form onSubmit={handleSubmit} className="p-6 space-y-6">
+            {/* Step 1: Duty Point Selection */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Step 1: Select Duty Point *
+              </label>
+              <div className="relative">
+                <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <select
+                  value={formData.dutyPointId}
+                  onChange={(e) => setFormData(prev => ({ ...prev, dutyPointId: e.target.value }))}
+                  className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors ${
+                    errors.dutyPointId ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                  }`}
+                  disabled={isSubmitting}
+                >
+                  <option value="">Choose a duty point</option>
+                  {dutyPoints.map((point) => (
+                    <option key={point.duty_point_id} value={point.duty_point_id.toString()}>
+                      {point.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {errors.dutyPointId && (
+                <p className="mt-1 text-sm text-red-600 flex items-center">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.dutyPointId}
+                </p>
+              )}
+            </div>
+
+            {/* Step 2: Shift Selection */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Step 2: Select Shift *
+              </label>
+              <div className="relative">
+                <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <select
+                  value={formData.shiftId}
+                  onChange={(e) => setFormData(prev => ({ ...prev, shiftId: e.target.value }))}
+                  className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors ${
+                    errors.shiftId ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                  }`}
+                  disabled={isSubmitting || !formData.dutyPointId}
+                >
+                  <option value="">Choose a shift</option>
+                  {shifts.map((shift) => (
+                    <option key={shift.shift_id} value={shift.shift_id.toString()}>
+                      {shift.name} ({formatTime(shift.start_time)} - {formatTime(shift.end_time)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {errors.shiftId && (
+                <p className="mt-1 text-sm text-red-600 flex items-center">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.shiftId}
+                </p>
+              )}
+            </div>
+
+            {/* Step 3: Employee Selection */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Step 3: Select Available Employee *
+              </label>
+              {availableEmployees.length === 0 ? (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <div className="flex items-center">
+                    <AlertCircle className="h-5 w-5 text-yellow-600 mr-2" />
+                    <span className="text-sm text-yellow-800">No available employees found. All employees are currently assigned.</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="relative">
+                  <Users className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <select
+                    value={formData.employeeId}
+                    onChange={(e) => setFormData(prev => ({ ...prev, employeeId: e.target.value }))}
+                    className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors ${
+                      errors.employeeId ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                    }`}
+                    disabled={isSubmitting || !formData.shiftId}
+                  >
+                    <option value="">Choose an employee</option>
+                    {availableEmployees.map((employee) => (
+                      <option key={employee.user_id} value={employee.user_id.toString()}>
+                        {employee.name} - {employee.phone}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {errors.employeeId && (
+                <p className="mt-1 text-sm text-red-600 flex items-center">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.employeeId}
+                </p>
+              )}
+            </div>
+
+            {/* Step 4: Date Range Selection */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Start Date *
+                </label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <input
+                    type="date"
+                    value={formData.startDate}
+                    onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                    min={new Date().toISOString().split('T')[0]}
+                    className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors ${
+                      errors.startDate ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                    }`}
+                    disabled={isSubmitting || !formData.employeeId}
+                  />
+                </div>
+                {errors.startDate && (
+                  <p className="mt-1 text-sm text-red-600 flex items-center">
+                    <AlertCircle className="h-4 w-4 mr-1" />
+                    {errors.startDate}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  End Date *
+                </label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <input
+                    type="date"
+                    value={formData.endDate}
+                    onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                    min={formData.startDate || new Date().toISOString().split('T')[0]}
+                    className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors ${
+                      errors.endDate ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                    }`}
+                    disabled={isSubmitting || !formData.startDate}
+                  />
+                </div>
+                {errors.endDate && (
+                  <p className="mt-1 text-sm text-red-600 flex items-center">
+                    <AlertCircle className="h-4 w-4 mr-1" />
+                    {errors.endDate}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Assignment Summary */}
+            {selectedDutyPoint && selectedShift && selectedEmployee && formData.startDate && formData.endDate && (
+              <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
+                <h4 className="text-sm font-medium text-orange-900 mb-3">Assignment Summary</h4>
+                <div className="space-y-2 text-sm text-orange-800">
+                  <div className="flex items-center">
+                    <Users className="h-4 w-4 mr-2" />
+                    <span><strong>Employee:</strong> {selectedEmployee.name}</span>
+                  </div>
+                  <div className="flex items-center">
+                    <MapPin className="h-4 w-4 mr-2" />
+                    <span><strong>Duty Point:</strong> {selectedDutyPoint.name}</span>
+                  </div>
+                  <div className="flex items-center">
+                    <Clock className="h-4 w-4 mr-2" />
+                    <span><strong>Shift:</strong> {selectedShift.name} ({formatTime(selectedShift.start_time)} - {formatTime(selectedShift.end_time)})</span>
+                  </div>
+                  <div className="flex items-center">
+                    <Calendar className="h-4 w-4 mr-2" />
+                    <span><strong>Duration:</strong> {formatDate(formData.startDate)} to {formatDate(formData.endDate)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Submit Message */}
+            {submitMessage && (
+              <div className={`p-4 rounded-lg ${
+                submitMessage.type === 'success' 
+                  ? 'bg-green-50 border border-green-200 text-green-800' 
+                  : 'bg-red-50 border border-red-200 text-red-800'
+              }`}>
+                <div className="flex items-center">
+                  {submitMessage.type === 'success' ? (
+                    <div className="w-4 h-4 bg-green-500 rounded-full mr-3 flex-shrink-0"></div>
+                  ) : (
+                    <AlertCircle className="h-4 w-4 mr-3 flex-shrink-0" />
+                  )}
+                  {submitMessage.text}
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex justify-end space-x-4 pt-6 border-t">
+              <button
+                type="button"
+                onClick={handleClose}
+                disabled={isSubmitting}
+                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
               >
-                <option value="">Choose a duty point</option>
-                {deptDutyPoints.filter(p => p.isActive).map((point) => (
-                  <option key={point.id} value={point.id}>
-                    {point.name} - {point.location}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {errors.dutyPointId && (
-              <p className="mt-1 text-sm text-red-600 flex items-center">
-                <AlertCircle className="h-4 w-4 mr-1" />
-                {errors.dutyPointId}
-              </p>
-            )}
-          </div>
-
-          {/* Shift Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Shift *
-            </label>
-            <div className="relative">
-              <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <select
-                value={formData.shiftId}
-                onChange={(e) => setFormData(prev => ({ ...prev, shiftId: e.target.value }))}
-                className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors ${
-                  errors.shiftId ? 'border-red-300 bg-red-50' : 'border-gray-300'
-                }`}
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting || availableEmployees.length === 0}
+                className="px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <option value="">Choose a shift</option>
-                {deptShifts.filter(s => s.isActive).map((shift) => (
-                  <option key={shift.id} value={shift.id}>
-                    {shift.name} ({formatTime(shift.startTime)} - {formatTime(shift.endTime)})
-                  </option>
-                ))}
-              </select>
+                <CheckSquare className="h-4 w-4" />
+                <span>{isSubmitting ? 'Assigning...' : 'Create Assignment'}</span>
+              </button>
             </div>
-            {errors.shiftId && (
-              <p className="mt-1 text-sm text-red-600 flex items-center">
-                <AlertCircle className="h-4 w-4 mr-1" />
-                {errors.shiftId}
-              </p>
-            )}
-          </div>
-
-          {/* Assignment Summary */}
-          {selectedDutyPoint && selectedShift && (
-            <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
-              <h4 className="text-sm font-medium text-orange-900 mb-2">Assignment Summary</h4>
-              <div className="space-y-1 text-sm text-orange-800">
-                <div className="flex items-center">
-                  <MapPin className="h-4 w-4 mr-2" />
-                  <span>{selectedDutyPoint.name}</span>
-                </div>
-                <div className="flex items-center">
-                  <Clock className="h-4 w-4 mr-2" />
-                  <span>{selectedShift.name} ({formatTime(selectedShift.startTime)} - {formatTime(selectedShift.endTime)})</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Employee Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Employees *
-            </label>
-            {availableEmployees.length === 0 ? (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <div className="flex items-center">
-                  <AlertCircle className="h-5 w-5 text-yellow-600 mr-2" />
-                  <span className="text-sm text-yellow-800">No available employees found. All employees are currently assigned.</span>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-48 overflow-y-auto border border-gray-300 rounded-lg p-3">
-                {availableEmployees.map((employee) => (
-                  <label key={employee.id} className="flex items-center p-3 hover:bg-gray-50 rounded-lg cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.employeeIds.includes(employee.id)}
-                      onChange={() => handleEmployeeToggle(employee.id)}
-                      className="mr-3 text-orange-600 focus:ring-orange-500"
-                    />
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-gray-900">{employee.name}</span>
-                        <span className="text-sm text-gray-500">{employee.designation}</span>
-                      </div>
-                      <div className="text-sm text-gray-600">{employee.phone}</div>
-                    </div>
-                  </label>
-                ))}
-              </div>
-            )}
-            {errors.employeeIds && (
-              <p className="mt-1 text-sm text-red-600 flex items-center">
-                <AlertCircle className="h-4 w-4 mr-1" />
-                {errors.employeeIds}
-              </p>
-            )}
-            {formData.employeeIds.length > 0 && (
-              <p className="mt-1 text-sm text-gray-600">
-                {formData.employeeIds.length} employee(s) selected
-              </p>
-            )}
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex justify-end space-x-4 pt-6 border-t">
-            <button
-              type="button"
-              onClick={handleClose}
-              className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={availableEmployees.length === 0}
-              className="px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <CheckSquare className="h-4 w-4" />
-              <span>Assign Duty</span>
-            </button>
-          </div>
-        </form>
+          </form>
+        )}
       </div>
     </div>
   );
