@@ -35,7 +35,7 @@ interface Employee {
   end_time: string;
   from_date: string;
   to_date: string;
-  active: boolean;
+  status: 'on_duty' | 'off_duty' | 'not_assigned';
 }
 
 interface DepartmentDetail {
@@ -74,7 +74,7 @@ const EmployeesView: React.FC = () => {
   const [departmentFilter, setDepartmentFilter] = useState<string>('all');
   const [shiftFilter, setShiftFilter] = useState<string>('all');
   const [dutyPointFilter, setDutyPointFilter] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'on_duty' | 'off_duty' | 'not_assigned'>('all');
   
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -135,6 +135,9 @@ const EmployeesView: React.FC = () => {
         params.append('duty_point_id', dutyPointFilter);
       }
 
+      if (statusFilter !== 'all') {
+        params.append('status', statusFilter);
+      }
       const response = await fetch(`${API_BASE_URL}/api/users?${params.toString()}`, {
         headers: {
           'Content-Type': 'application/json',
@@ -144,14 +147,9 @@ const EmployeesView: React.FC = () => {
       if (response.ok) {
         const data: EmployeesResponse = await response.json();
         
-        // Filter employees by role and status
+        // Filter employees by role
         let filteredEmployees = data.data.filter(emp => emp.role === 'Employee');
         
-        if (statusFilter !== 'all') {
-          filteredEmployees = filteredEmployees.filter(emp => 
-            statusFilter === 'active' ? emp.active : !emp.active
-          );
-        }
 
         setEmployees(filteredEmployees);
         setTotalPages(data.pagination.totalPages);
@@ -165,6 +163,11 @@ const EmployeesView: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEmployeeCreated = () => {
+    // Refresh the employees list
+    fetchEmployees();
   };
 
   // Initial data fetch
@@ -383,12 +386,13 @@ const EmployeesView: React.FC = () => {
               <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
               <select
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as any)}
+                onChange={(e) => setStatusFilter(e.target.value as 'all' | 'on_duty' | 'off_duty' | 'not_assigned')}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 appearance-none"
               >
                 <option value="all">All Status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
+                <option value="on_duty">On Duty</option>
+                <option value="off_duty">Off Duty</option>
+                <option value="not_assigned">Not Assigned</option>
               </select>
             </div>
           </div>
@@ -444,7 +448,7 @@ const EmployeesView: React.FC = () => {
             )}
             {statusFilter !== 'all' && (
               <span className="inline-flex items-center px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
-                Status: {statusFilter}
+                Status: {statusFilter.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
                 <button
                   onClick={() => setStatusFilter('all')}
                   className="ml-1 text-red-600 hover:text-red-800"
@@ -501,6 +505,9 @@ const EmployeesView: React.FC = () => {
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Shift
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Assignment Period
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
@@ -604,14 +611,42 @@ const EmployeesView: React.FC = () => {
                     )}
                   </td>
 
+                  {/* Assignment Period */}
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {employee.from_date && employee.to_date ? (
+                      <div className="text-sm">
+                        <div className="font-medium text-gray-900">
+                          {new Date(employee.from_date).toLocaleDateString('en-IN', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric'
+                          })}
+                        </div>
+                        <div className="text-xs text-gray-500">to</div>
+                        <div className="font-medium text-gray-900">
+                          {new Date(employee.to_date).toLocaleDateString('en-IN', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric'
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-gray-500">No assignment period</span>
+                    )}
+                  </td>
                   {/* Status */}
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                      employee.active 
-                        ? 'bg-green-100 text-green-800 border border-green-200' 
-                        : 'bg-red-100 text-red-800 border border-red-200'
+                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full border ${
+                      employee.status === 'on_duty' 
+                        ? 'bg-green-100 text-green-800 border-green-200' 
+                        : employee.status === 'off_duty'
+                        ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
+                        : 'bg-gray-100 text-gray-800 border-gray-200'
                     }`}>
-                      {employee.active ? 'Active' : 'Inactive'}
+                      {employee.status === 'on_duty' ? 'On Duty' : 
+                       employee.status === 'off_duty' ? 'Off Duty' : 
+                       'Not Assigned'}
                     </span>
                   </td>
 
@@ -705,6 +740,7 @@ const EmployeesView: React.FC = () => {
       <AddEmployeeModal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
+        onSuccess={handleEmployeeCreated}
       />
     </div>
   );

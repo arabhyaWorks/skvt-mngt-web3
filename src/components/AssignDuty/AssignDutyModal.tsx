@@ -30,7 +30,7 @@ interface Employee {
   phone: string;
   role: string;
   department_id: number;
-  active: boolean;
+  status: 'on_duty' | 'off_duty' | 'not_assigned';
   shift_id: string;
   duty_point_id: string;
 }
@@ -42,6 +42,7 @@ const AssignDutyModal: React.FC<AssignDutyModalProps> = ({ isOpen, onClose, onSu
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [employeesLoading, setEmployeesLoading] = useState(false);
   
   const [formData, setFormData] = useState({
     dutyPointId: '',
@@ -84,26 +85,42 @@ const AssignDutyModal: React.FC<AssignDutyModalProps> = ({ isOpen, onClose, onSu
     }
   };
 
-  // Fetch employees for the department
+  // Fetch all employees for the department (with pagination)
   const fetchEmployees = async () => {
     if (!user?.departmentId) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/users?role=Employee&department_id=${user.departmentId}`, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      setEmployeesLoading(true);
+      let allEmployees: Employee[] = [];
+      let currentPage = 1;
+      let totalPages = 1;
+      const limit = 50; // Fetch 50 employees per page
 
-      if (response.ok) {
-        const data = await response.json();
-        setEmployees(data.data || []);
-      } else {
-        setError('Failed to fetch employees');
-      }
+      // Fetch all pages of employees
+      do {
+        const response = await fetch(`${API_BASE_URL}/api/users?role=Employee&department_id=${user.departmentId}&status=not_assigned&page=${currentPage}&limit=${limit}`, {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          allEmployees = [...allEmployees, ...(data.data || [])];
+          totalPages = data.pagination?.totalPages || 1;
+          currentPage++;
+        } else {
+          setError('Failed to fetch employees');
+          break;
+        }
+      } while (currentPage <= totalPages);
+
+      setEmployees(allEmployees);
     } catch (error) {
       console.error('Error fetching employees:', error);
       setError('Network error occurred');
+    } finally {
+      setEmployeesLoading(false);
     }
   };
 
@@ -116,9 +133,7 @@ const AssignDutyModal: React.FC<AssignDutyModalProps> = ({ isOpen, onClose, onSu
   }, [isOpen, user?.departmentId]);
 
   // Get available (inactive) employees
-  const availableEmployees = employees.filter(emp => 
-    !emp.active && (!emp.shift_id || emp.shift_id === '') && (!emp.duty_point_id || emp.duty_point_id === '')
-  );
+  const availableEmployees = employees.filter(emp => emp.status === 'not_assigned');
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -286,6 +301,14 @@ const AssignDutyModal: React.FC<AssignDutyModalProps> = ({ isOpen, onClose, onSu
           </div>
         )}
 
+        {/* Employees Loading State */}
+        {employeesLoading && !loading && (
+          <div className="p-6 text-center">
+            <div className="w-6 h-6 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-2"></div>
+            <p className="text-sm text-gray-600">Loading employees...</p>
+          </div>
+        )}
+
         {/* Error State */}
         {error && (
           <div className="p-6">
@@ -299,7 +322,7 @@ const AssignDutyModal: React.FC<AssignDutyModalProps> = ({ isOpen, onClose, onSu
         )}
 
         {/* Form */}
-        {!loading && !error && (
+        {!loading && !error && !employeesLoading && (
           <form onSubmit={handleSubmit} className="p-6 space-y-6">
             {/* Step 1: Duty Point Selection */}
             <div>
@@ -366,13 +389,15 @@ const AssignDutyModal: React.FC<AssignDutyModalProps> = ({ isOpen, onClose, onSu
             {/* Step 3: Employee Selection */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Step 3: Select Available Employee *
+                Step 3: Select Available Employee * ({availableEmployees.length} available)
               </label>
               {availableEmployees.length === 0 ? (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                   <div className="flex items-center">
                     <AlertCircle className="h-5 w-5 text-yellow-600 mr-2" />
-                    <span className="text-sm text-yellow-800">No available employees found. All employees are currently assigned.</span>
+                    <span className="text-sm text-yellow-800">
+                      No available employees found. All {employees.length} employees are either on duty or off duty.
+                    </span>
                   </div>
                 </div>
               ) : (

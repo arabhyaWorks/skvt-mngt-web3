@@ -1,22 +1,20 @@
 import React, { useState } from 'react';
 import { X, Users, Phone, Mail, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react';
-import { useAuth } from '../../hooks/useAuth';
 import { API_BASE_URL } from '../../config/api';
 
 interface AddEmployeeModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  departmentId: string;
 }
 
-const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const { user } = useAuth();
+const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ isOpen, onClose, onSuccess, departmentId }) => {
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
     email: '',
     password: '',
-    designation: '',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -72,7 +70,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ isOpen, onClose, on
             email: formData.email,
             password: formData.password,
             role: 'Employee',
-            department_id: parseInt(user?.departmentId || '0'),
+            department_id: parseInt(departmentId),
           }),
         });
 
@@ -112,7 +110,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ isOpen, onClose, on
   };
 
   const handleClose = () => {
-    setFormData({ name: '', phone: '', email: '', password: '', designation: '' });
+    setFormData({ name: '', phone: '', email: '', password: '' });
     setErrors({});
     setSubmitMessage(null);
     setIsSubmitting(false);

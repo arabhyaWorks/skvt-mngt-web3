@@ -52,17 +52,31 @@ const AssignDutyView: React.FC = () => {
         setShifts(deptData.shifts || []);
       }
 
-      // Fetch employees
-      const empResponse = await fetch(`${API_BASE_URL}/api/users?role=Employee&department_id=${user.departmentId}`, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      // Fetch all employees with pagination
+      let allEmployees: any[] = [];
+      let currentPage = 1;
+      let totalPages = 1;
+      const limit = 50; // Fetch 50 employees per page
 
-      if (empResponse.ok) {
-        const empData = await empResponse.json();
-        setEmployees(empData.data || []);
-      }
+      do {
+        const empResponse = await fetch(`${API_BASE_URL}/api/users?role=Employee&department_id=${user.departmentId}&page=${currentPage}&limit=${limit}`, {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (empResponse.ok) {
+          const empData = await empResponse.json();
+          allEmployees = [...allEmployees, ...(empData.data || [])];
+          totalPages = empData.pagination?.totalPages || 1;
+          currentPage++;
+        } else {
+          setError('Failed to fetch employees');
+          break;
+        }
+      } while (currentPage <= totalPages);
+
+      setEmployees(allEmployees);
     } catch (error) {
       console.error('Error fetching data:', error);
       setError('Network error occurred');
@@ -79,9 +93,7 @@ const AssignDutyView: React.FC = () => {
   }, [user?.departmentId]);
 
   // Get active duties (employees with assignments)
-  const activeDuties = employees.filter(emp => 
-    emp.active && emp.duty_point_id && emp.shift_id
-  );
+  const activeDuties = employees.filter(emp => emp.status === 'on_duty');
 
   // Filter active duties based on search
   const filteredActiveDuties = activeDuties.filter(duty => {
@@ -167,7 +179,7 @@ const AssignDutyView: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">Available Staff</p>
-              <p className="text-2xl font-bold text-blue-600">{employees.filter(e => !e.active).length}</p>
+              <p className="text-2xl font-bold text-blue-600">{employees.filter(e => e.status === 'not_assigned').length}</p>
             </div>
             <Users className="h-8 w-8 text-blue-500" />
           </div>
@@ -263,8 +275,16 @@ const AssignDutyView: React.FC = () => {
                           {duty.name}
                         </h3>
                         <p className="text-sm text-gray-600 mb-2">ID: {duty.user_id}</p>
-                        <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800 border border-green-200">
-                          On Duty
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full border ${
+                          duty.status === 'on_duty' 
+                            ? 'bg-green-100 text-green-800 border-green-200' 
+                            : duty.status === 'off_duty'
+                            ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
+                            : 'bg-gray-100 text-gray-800 border-gray-200'
+                        }`}>
+                          {duty.status === 'on_duty' ? 'On Duty' : 
+                           duty.status === 'off_duty' ? 'Off Duty' : 
+                           'Not Assigned'}
                         </span>
                       </div>
                       <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0 ml-3">

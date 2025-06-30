@@ -21,6 +21,7 @@ export const useData = () => {
       return;
     }
 
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/departments`, {
         headers: {
@@ -30,8 +31,7 @@ export const useData = () => {
 
       if (response.ok) {
         const data = await response.json();
-        // The API returns an array where the second element contains the departments
-        const departmentsData = data[1] || [];
+        const departmentsData = data;
         
         const mappedDepartments: Department[] = departmentsData.map((dept: any) => ({
           id: dept.department_id.toString(),
@@ -57,6 +57,8 @@ export const useData = () => {
   const fetchDepartmentAdmins = async () => {
     if (user?.role !== 'super_admin') return;
 
+    // console.log("fetching departemnt admins")
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/users?role=DepartmentAdmin`, {
         headers: {
@@ -65,8 +67,10 @@ export const useData = () => {
       });
 
       if (response.ok) {
+
         const data = await response.json();
-        setDepartmentAdmins(data);
+        // console.log(data)
+        setDepartmentAdmins(data.data);
       }
     } catch (error) {
       console.error('Error fetching department admins:', error);

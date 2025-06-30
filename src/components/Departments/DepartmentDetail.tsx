@@ -20,6 +20,9 @@ import {
 import { useData } from '../../hooks/useData';
 import { useAuth } from '../../hooks/useAuth';
 import { API_BASE_URL } from '../../config/api';
+import AddDutyPointModal from './AddDutyPointModal';
+import AddShiftModal from './AddShiftModal';
+import AddEmployeeModal from './AddEmployeeModal';
 
 interface Employee {
   user_id: number;
@@ -67,11 +70,16 @@ const DepartmentDetail: React.FC = () => {
   const [employeeSearchTerm, setEmployeeSearchTerm] = useState('');
   const [employeeShiftFilter, setEmployeeShiftFilter] = useState<string>('all');
   const [employeeDutyPointFilter, setEmployeeDutyPointFilter] = useState<string>('all');
-  const [employeeStatusFilter, setEmployeeStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [employeeStatusFilter, setEmployeeStatusFilter] = useState<'all' | 'on_duty' | 'off_duty' | 'not_assigned'>('all');
   const [employeeCurrentPage, setEmployeeCurrentPage] = useState(1);
   const [employeeTotalPages, setEmployeeTotalPages] = useState(1);
   const [employeeTotalCount, setEmployeeTotalCount] = useState(0);
   const [employeeLimit] = useState(10);
+
+  // Modal states
+  const [showAddDutyPointModal, setShowAddDutyPointModal] = useState(false);
+  const [showAddShiftModal, setShowAddShiftModal] = useState(false);
+  const [showAddEmployeeModal, setShowAddEmployeeModal] = useState(false);
 
   // Fetch department details from API
   useEffect(() => {
@@ -134,6 +142,9 @@ const DepartmentDetail: React.FC = () => {
         params.append('duty_point_id', employeeDutyPointFilter);
       }
 
+       if (employeeStatusFilter !== 'all') {
+         params.append('status', employeeStatusFilter);
+       }
       const response = await fetch(`${API_BASE_URL}/api/users?${params.toString()}`, {
         headers: {
           'Content-Type': 'application/json',
@@ -143,14 +154,9 @@ const DepartmentDetail: React.FC = () => {
       if (response.ok) {
         const data: EmployeesResponse = await response.json();
         
-        // Filter employees by role and status
+        // Filter employees by role
         let filteredEmployees = data.data.filter(emp => emp.role === 'Employee');
         
-        if (employeeStatusFilter !== 'all') {
-          filteredEmployees = filteredEmployees.filter(emp => 
-            employeeStatusFilter === 'active' ? emp.active : !emp.active
-          );
-        }
 
         setEmployees(filteredEmployees);
         setEmployeeTotalPages(data.pagination.totalPages);
@@ -172,6 +178,36 @@ const DepartmentDetail: React.FC = () => {
       fetchDepartmentEmployees();
     }
   }, [activeTab, departmentId, employeeCurrentPage, employeeSearchTerm, employeeShiftFilter, employeeDutyPointFilter, employeeStatusFilter]);
+
+  // Refresh department data when modals succeed
+  const handleDataRefresh = () => {
+    // Refresh department details
+    const fetchDepartmentDetail = async () => {
+      if (!departmentId) return;
+      
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/departments/${departmentId}`, {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setDepartmentData(data);
+        }
+      } catch (error) {
+        console.error('Error refreshing department details:', error);
+      }
+    };
+
+    fetchDepartmentDetail();
+    
+    // Refresh employees if on employees tab
+    if (activeTab === 'employees') {
+      fetchDepartmentEmployees();
+    }
+  };
 
   // Reset page when filters change
   useEffect(() => {
@@ -353,7 +389,9 @@ const DepartmentDetail: React.FC = () => {
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-semibold text-gray-900">Duty Points</h3>
         {(user?.role === 'super_admin' || user?.role === 'department_admin') && (
-          <button className="flex items-center px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors">
+          <button 
+            onClick={() => setShowAddDutyPointModal(true)}
+            className="flex items-center px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors">
             <Plus className="h-4 w-4 mr-2" />
             Add Point
           </button>
@@ -397,7 +435,9 @@ const DepartmentDetail: React.FC = () => {
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-semibold text-gray-900">Shifts</h3>
         {(user?.role === 'super_admin' || user?.role === 'department_admin') && (
-          <button className="flex items-center px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors">
+          <button 
+            onClick={() => setShowAddShiftModal(true)}
+            className="flex items-center px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors">
             <Plus className="h-4 w-4 mr-2" />
             Add Shift
           </button>
@@ -476,7 +516,9 @@ const DepartmentDetail: React.FC = () => {
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-semibold text-gray-900">Employees</h3>
         {(user?.role === 'super_admin' || user?.role === 'department_admin') && (
-          <button className="flex items-center px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors">
+          <button 
+            onClick={() => setShowAddEmployeeModal(true)}
+            className="flex items-center px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors">
             <Plus className="h-4 w-4 mr-2" />
             Add Employee
           </button>
@@ -548,12 +590,13 @@ const DepartmentDetail: React.FC = () => {
               <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               <select
                 value={employeeStatusFilter}
-                onChange={(e) => setEmployeeStatusFilter(e.target.value as any)}
+                onChange={(e) => setEmployeeStatusFilter(e.target.value as 'all' | 'on_duty' | 'off_duty' | 'not_assigned')}
                 className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 appearance-none"
               >
                 <option value="all">All Status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
+                <option value="on_duty">On Duty</option>
+                <option value="off_duty">Off Duty</option>
+                <option value="not_assigned">Not Assigned</option>
               </select>
             </div>
           </div>
@@ -598,7 +641,7 @@ const DepartmentDetail: React.FC = () => {
             )}
             {employeeStatusFilter !== 'all' && (
               <span className="inline-flex items-center px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
-                Status: {employeeStatusFilter}
+                Status: {employeeStatusFilter.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
                 <button
                   onClick={() => setEmployeeStatusFilter('all')}
                   className="ml-1 text-red-600 hover:text-red-800"
@@ -738,12 +781,16 @@ const DepartmentDetail: React.FC = () => {
 
                     {/* Status */}
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                        employee.active 
-                          ? 'bg-green-100 text-green-800 border border-green-200' 
-                          : 'bg-red-100 text-red-800 border border-red-200'
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full border ${
+                        employee.status === 'on_duty' 
+                          ? 'bg-green-100 text-green-800 border-green-200' 
+                          : employee.status === 'off_duty'
+                          ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
+                          : 'bg-gray-100 text-gray-800 border-gray-200'
                       }`}>
-                        {employee.active ? 'Active' : 'Inactive'}
+                        {employee.status === 'on_duty' ? 'On Duty' : 
+                         employee.status === 'off_duty' ? 'Off Duty' : 
+                         'Not Assigned'}
                       </span>
                     </td>
 
@@ -775,6 +822,13 @@ const DepartmentDetail: React.FC = () => {
                   : 'No employees assigned to this department yet'
                 }
               </p>
+              <button
+                onClick={() => setShowAddEmployeeModal(true)}
+                className="inline-flex items-center px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Employee
+              </button>
             </div>
           )}
         </div>
@@ -883,6 +937,30 @@ const DepartmentDetail: React.FC = () => {
         {activeTab === 'shifts' && renderShifts()}
         {activeTab === 'employees' && renderEmployees()}
       </div>
+
+      {/* Add Modals */}
+      {departmentId && (
+        <>
+          <AddDutyPointModal
+            isOpen={showAddDutyPointModal}
+            onClose={() => setShowAddDutyPointModal(false)}
+            onSuccess={handleDataRefresh}
+            departmentId={departmentId}
+          />
+          <AddShiftModal
+            isOpen={showAddShiftModal}
+            onClose={() => setShowAddShiftModal(false)}
+            onSuccess={handleDataRefresh}
+            departmentId={departmentId}
+          />
+          <AddEmployeeModal
+            isOpen={showAddEmployeeModal}
+            onClose={() => setShowAddEmployeeModal(false)}
+            onSuccess={handleDataRefresh}
+            departmentId={departmentId}
+          />
+        </>
+      )}
     </div>
   );
 };
